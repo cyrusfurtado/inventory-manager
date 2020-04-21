@@ -7,11 +7,13 @@
 var app = require('../app');
 var debug = require('debug')('inventory-manager:server');
 var http = require('http');
+var fs = require('fs');
+var https = require('https');
 
 /**
  * Get port from environment and store in Express.
  */
-
+const portSSL = 443;
 var port = normalizePort(process.env.PORT || '3000');
 app.set('port', port);
 
@@ -25,9 +27,28 @@ var server = http.createServer(app);
  * Listen on provided port, on all network interfaces.
  */
 
-server.listen(port);
+server.listen(port, () => console.log(`server listening on port ${port}`));
 server.on('error', onError);
 server.on('listening', onListening);
+
+
+/**
+ * 
+ * create HTTPS server
+ */
+const privateKey = fs.readFileSync('./secure/selfsigned.key');
+const certificate = fs.readFileSync('./secure/selfsigned.crt');
+const credentials = {key: privateKey, cert: certificate};
+
+var serverSSL = https.createServer(credentials, app);
+
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+
+serverSSL.listen(portSSL, () => console.log(`serverSSL listening on port ${portSSL}`));
+serverSSL.on('error', onError);
+serverSSL.on('listening', onListening);
 
 /**
  * Normalize a port into a number, string, or false.
