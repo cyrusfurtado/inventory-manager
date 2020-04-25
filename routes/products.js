@@ -1,6 +1,6 @@
 const express = require('express');
 const productRouter = express.Router();
-const { clientQuery } = require('../db/driver');
+const { clientQuery, handleError, getFields } = require('../db/driver');
 
 productRouter.route('/')
     .get((req, res, next) => {
@@ -10,7 +10,7 @@ productRouter.route('/')
             const sort_by = req.body.sort_by || null;
             const direction = req.body.direction || null;
 
-            const response = {
+            const result = {
                 total: 0,
                 resultCount: 0,
                 page: req.body.page || 1,
@@ -22,7 +22,7 @@ productRouter.route('/')
             })
             .then(cres => {
                 if (cres.rows && cres.rows.length && cres.rows[0].count) {
-                    response.total = parseInt(cres.rows[0].count, 10);
+                    result.total = parseInt(cres.rows[0].count, 10);
                 }
 
             const query = {
@@ -34,13 +34,13 @@ productRouter.route('/')
                return clientQuery(query);
             })
             .then(qres => {
-                res.statusCode = 200;
-                res.setHeader('Content-Type', 'application/json');
-                const fields = qres.fields ? qres.fields.map(field => field.name) : [];
-                response.rows = qres.rows;
-                response.resultCount =  qres.rows ? qres.rows.length : 0;
-                response.fields = fields;
-                res.json(response);
+                handleError(res, qres, (response) => {
+                    const fields = getFields(qres.fields);
+                    result.rows = qres.rows;
+                    result.resultCount =  qres.rows ? qres.rows.length : 0;
+                    result.fields = fields;
+                    res.json(result);
+                });
             })
             .catch(err => next(err));
         }
@@ -49,10 +49,37 @@ productRouter.route('/')
     .post((req, res, next) => {})
     .delete((req, res, next) => {});
 
-productRouter.route('/:product')
-            .get((req, res, next) => {})
-            .put((req, res, next) => {})
-            .post((req, res, next) => {})
-            .delete((req, res, next) => {});
+productRouter.route('/:product_id')
+            .get((req, res, next) => {
+                const pid = req.params.product_id
+
+                const query = {
+                        text: 'SELECT * FROM get_product($1)',
+                        values: [pid]
+                    }
+
+                    clientQuery(query)
+                    .then((qres) => {
+                        handleError(res, qres, (response) => {
+                            response.json(qres.rows[0]);
+                        });
+                    })
+                    .catch(err => next(err));
+            })
+            .put((req, res, next) => {
+                res.json({
+                    message: 'coming soon'
+                });
+            })
+            .post((req, res, next) => {
+                res.json({
+                    message: 'coming soon'
+                });
+            })
+            .delete((req, res, next) => {
+                res.json({
+                    message: 'coming soon'
+                });
+            });
 
 module.exports = productRouter;
