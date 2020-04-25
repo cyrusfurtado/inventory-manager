@@ -35,3 +35,23 @@ exports.clientQuery = async function(query) {
         return err;
     }
 }
+
+exports.handleError = (response, queryresponse, successCB) => {
+    try {
+        if (queryresponse.rows && queryresponse.rows.length !== undefined) {
+            response.statusCode = 200;
+            response.setHeader('Content-Type', 'application/json');
+            successCB(response);
+        } else {
+            response.statusCode = 500;
+            response.json({error: queryresponse});
+        }
+    } catch(error) {
+        response.statusCode = 500;
+        response.json({error: error.stack});
+    }
+}
+
+exports.getFields = function(fields) {
+    return fieldkeys = fields ? fields.map(field => field.name) : [];
+}
