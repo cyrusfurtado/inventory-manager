@@ -1,8 +1,8 @@
 const express = require('express');
-const productRouter = express.Router();
+const orderRouter = express.Router();
 const { clientQuery, handleError, getFields } = require('../db/driver');
 
-productRouter.route('/')
+orderRouter.route('/')
     .get((req, res, next) => { //get all products
         if (req.body) {
             const limit = req.body.limit || 10;
@@ -18,7 +18,7 @@ productRouter.route('/')
             };
             clientQuery({
                 text: 'SELECT * FROM get_count($1)',
-                values: ['products'],
+                values: ['orders'],
             })
             .then(cres => {
                 if (cres.rows && cres.rows.length && cres.rows[0].count) {
@@ -26,7 +26,7 @@ productRouter.route('/')
                 }
 
             const query = {
-                text: 'SELECT * FROM get_products($1, $2, $3, $4)',
+                text: 'SELECT * FROM get_orders($1, $2, $3, $4)',
                 values: [limit, page, sort_by, direction],
                 rowMode: 'array',
               }
@@ -48,39 +48,43 @@ productRouter.route('/')
     .put((req, res, next) => { // insert a product
         const body = req.body;
         const rowdata = {
-            product_name: body.name || '',
-            part_number: body.part || '',
-            product_label: body.label || '',
-            starting_inventory: body.start_inv || 0,
-            inventory_received: body.inv_rec || 0,
-            inventory_shipped: body.inv_shipped || 0,
-            minimum_required: body.min_req || 0
+            title: body.title || '',
+            first: body.first_name || '',
+            last: body.last_name || '',
+            product_id: body.product_id || 0,
+            number_shipped: body.number_shipped || 0,
+            order_date: body.order_date || 0
         }
 
-        const query = {
-            text: 'SELECT * FROM create_product($1, $2, $3, $4, $5, $6, $7)',
-            values: [rowdata.product_name, rowdata.part_number, rowdata.product_label, rowdata.starting_inventory, 
-                    rowdata.inventory_received, rowdata.inventory_shipped, rowdata.minimum_required ]
+        if (Object.keys(rowdata).every(key => !!(rowdata[key]))) {            
+            const query = {
+                text: 'SELECT * FROM create_order($1, $2, $3, $4, $5, $6)',
+                values: [rowdata.title, rowdata.first, rowdata.last, rowdata.product_id, 
+                        rowdata.number_shipped, rowdata.order_date ]
+            }
+    
+            clientQuery(query)
+            .then((qres) => {
+                handleError(res, qres, (response) => {
+                    response.json(qres.rows[0]);
+                });
+            })
+            .catch(err => next(err));
+        } else {
+            res.statusCode = 400;
+            res.json({message: 'key missing'});
         }
-
-        clientQuery(query)
-        .then((qres) => {
-            handleError(res, qres, (response) => {
-                response.json(qres.rows[0]);
-            });
-        })
-        .catch(err => next(err));
     })
     .post((req, res, next) => {})
     .delete((req, res, next) => {});
 
-productRouter.route('/:product_id')
+orderRouter.route('/:order_id')
             .get((req, res, next) => { //retreive a product
-                const pid = req.params.product_id
+                const oid = req.params.order_id
 
                 const query = {
-                        text: 'SELECT * FROM get_product($1)',
-                        values: [pid]
+                        text: 'SELECT * FROM get_order($1)',
+                        values: [oid]
                     }
 
                 clientQuery(query)
@@ -97,23 +101,21 @@ productRouter.route('/:product_id')
                 });
             })
             .post((req, res, next) => { // update a product
-                const id = req.params.product_id;
+                const id = req.params.order_id;
                 const body = req.body;
                 const rowdata = {
                     id: id,
-                    product_name: body.name || '',
-                    part_number: body.part || '',
-                    product_label: body.label || '',
-                    starting_inventory: body.start_inv || 0,
-                    inventory_received: body.inv_rec || 0,
-                    inventory_shipped: body.inv_shipped || 0,
-                    minimum_required: body.min_req || 0
+                    title: body.title || '',
+                    first: body.first_name || '',
+                    last: body.last_name || '',
+                    product_id: body.product_id || 0,
+                    number_shipped: body.number_shipped || 0,
+                    order_date: body.order_date || 0
                 }
-        
+                
                 const query = {
-                    text: 'SELECT * FROM update_product($1, $2, $3, $4, $5, $6, $7, $8)',
-                    values: [rowdata.id, rowdata.product_name, rowdata.part_number, rowdata.product_label, rowdata.starting_inventory, 
-                            rowdata.inventory_received, rowdata.inventory_shipped, rowdata.minimum_required ]
+                    text: 'SELECT * FROM update_order($1, $2, $3, $4, $5, $6, $7)',
+                    values: [rowdata.id, rowdata.title, rowdata.first, rowdata.last, rowdata.product_id, rowdata.number_shipped, rowdata.order_date ]
                 }
         
                 clientQuery(query)
@@ -125,11 +127,11 @@ productRouter.route('/:product_id')
                 .catch(err => next(err));
             })
             .delete((req, res, next) => { // delete a product
-                const pid = req.params.product_id;
+                const oid = req.params.order_id;
 
                 const query = {
-                    text: 'SELECT * FROM remove_product($1)',
-                    values: [pid]
+                    text: 'SELECT * FROM remove_order($1)',
+                    values: [oid]
                 }
 
                 clientQuery(query)
@@ -141,4 +143,4 @@ productRouter.route('/:product_id')
                 .catch(err => next(err));
             });
 
-module.exports = productRouter;
+module.exports = orderRouter;
