@@ -1,0 +1,5 @@
+# dump a db file
+pg_dump -U postgres -p 5432 -d inventorymanager -W -f c:\inv.pgsql
+
+# restore a db file
+psql 
