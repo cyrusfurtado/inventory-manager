@@ -13,6 +13,7 @@ initConnection(connection)
   .then(res => console.log('client connected to DB'))
   .catch(err => { throw 'Database connection error: ', err; });
 
+const cookieSecret = '0123456789-0987-6543-210';
 const defaultUser = {
   username: 'admin',
   password: 'password'
@@ -34,35 +35,46 @@ app.set('view engine', 'jade');
 app.use(logger('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-app.use(cookieParser());
+app.use(cookieParser(cookieSecret));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // basic authorization
 const auth = function(req, res, next) {
-  const authorization = req.headers.authorization;
-
-  if(authorization) {
-    try {
-      const auth = new Buffer(authorization.split(' ')[1], 'base64').toString().split(':');
-
-      const user = auth[0];
-      const pass = auth[1];
-  
-      if( user === defaultUser.username && pass === defaultUser.password ) {
-        next();
-      } else {
-        const err = new Error('Forbidden');
-        err.status = 403;
-        next(err);
-      }
-    } catch(e) {
-      next(e);
+  const cookieUser = req.signedCookies ? req.signedCookies.user : null;
+  if (cookieUser) {
+    if (cookieUser === defaultUser.username) {
+      next();
+    } else {
+      const err = new Error('Forbidden');
+      err.status = 403;
+      next(err);
     }
-  } else {
-    res.setHeader('WWW-Authenticate', 'Basic');
-    const error = new Error('No authorization provided');
-    error.status = 401;
-    next(error);
+  } else { // authenticate the user using basic method
+    const authorization = req.headers.authorization;
+    if(authorization) {
+      try {
+        const auth = new Buffer.from(authorization.split(' ')[1], 'base64').toString().split(':');
+  
+        const user = auth[0];
+        const pass = auth[1];
+    
+        if( user === defaultUser.username && pass === defaultUser.password ) {
+          res.cookie('user', defaultUser.username, { signed: true });
+          next();
+        } else {
+          const err = new Error('Forbidden');
+          err.status = 403;
+          next(err);
+        }
+      } catch(e) {
+        next(e);
+      }
+    } else {
+      res.setHeader('WWW-Authenticate', 'Basic');
+      const error = new Error('No authorization provided');
+      error.status = 401;
+      next(error);
+    }
   }
 }
 
