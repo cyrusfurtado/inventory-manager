@@ -3,6 +3,8 @@ var express = require('express');
 var path = require('path');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
+const session = require('express-session');
+const filestore = require('session-file-store')(session);
 
 /**
  * initialise the db connection
@@ -13,7 +15,7 @@ initConnection(connection)
   .then(res => console.log('client connected to DB'))
   .catch(err => { throw 'Database connection error: ', err; });
 
-const cookieSecret = '0123456789-0987-6543-210';
+const secret = '0123456789-0987-6543-210';
 const defaultUser = {
   username: 'admin',
   password: 'password'
@@ -35,14 +37,22 @@ app.set('view engine', 'jade');
 app.use(logger('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-app.use(cookieParser(cookieSecret));
+app.use(cookieParser(secret));
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.use(session({
+  name: 'session-id',
+  secret: secret,
+  saveUninitialized: false,
+  resave: false,
+  store: new filestore()
+}));
 
 // basic authorization
 const auth = function(req, res, next) {
-  const cookieUser = req.signedCookies ? req.signedCookies.user : null;
-  if (cookieUser) {
-    if (cookieUser === defaultUser.username) {
+  const user = req.session ? req.session.user : null;
+  if (user) {
+    if (user === defaultUser.username) {
       next();
     } else {
       const err = new Error('Forbidden');
@@ -59,7 +69,7 @@ const auth = function(req, res, next) {
         const pass = auth[1];
     
         if( user === defaultUser.username && pass === defaultUser.password ) {
-          res.cookie('user', defaultUser.username, { signed: true });
+          req.session.user = defaultUser.username;
           next();
         } else {
           const err = new Error('Forbidden');
