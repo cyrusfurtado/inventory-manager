@@ -88,10 +88,11 @@ const auth = function(req, res, next) {
   }
 }
 
-app.use(auth);
-
 app.use('/', indexRouter);
 app.use('/users', usersRouter);
+
+// protected routes
+app.use(auth);
 app.use('/products', productRouter);
 app.use('/orders', orderRouter);
 app.use('/suppliers', supplierRouter);
