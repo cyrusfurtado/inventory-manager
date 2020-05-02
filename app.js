@@ -10,19 +10,15 @@ const filestore = require('session-file-store')(session);
  * initialise the db connection
  */
 const connection = require('./config/connection.json');
-const { initConnection } = require('./db/driver');
+const { initConnection, clientQuery } = require('./db/driver');
 initConnection(connection)
   .then(res => console.log('client connected to DB'))
   .catch(err => { throw 'Database connection error: ', err; });
 
 const secret = '0123456789-0987-6543-210';
-const defaultUser = {
-  username: 'admin',
-  password: 'password'
-}
 
 const indexRouter = require('./routes/index');
-const usersRouter = require('./routes/users');
+const { userRouter, saltHashPassword } = require('./routes/users');
 const productRouter = require('./routes/products');
 const orderRouter = require('./routes/orders');
 const supplierRouter = require('./routes/suppliers');
@@ -52,13 +48,7 @@ app.use(session({
 const auth = function(req, res, next) {
   const user = req.session ? req.session.user : null;
   if (user) {
-    if (user === defaultUser.username) {
-      next();
-    } else {
-      const err = new Error('Forbidden');
-      err.status = 403;
-      next(err);
-    }
+    next();
   } else { // authenticate the user using basic method
     const authorization = req.headers.authorization;
     if(authorization) {
@@ -68,14 +58,21 @@ const auth = function(req, res, next) {
         const user = auth[0];
         const pass = auth[1];
     
-        if( user === defaultUser.username && pass === defaultUser.password ) {
-          req.session.user = defaultUser.username;
-          next();
-        } else {
-          const err = new Error('Forbidden');
-          err.status = 403;
-          next(err);
-        }
+        clientQuery({
+          text: 'SELECT * FROM get_user($1)',
+          values: [user]
+        }).then(qres => {
+          const userdata = qres && qres.rows.length ? qres.rows[0] : {};
+          if( userdata.id && user === userdata.user_name && userdata.hash === saltHashPassword(pass, userdata.salt).passwordHash ) {
+            req.session.user = userdata.user_name;
+            next();
+          } else {
+            res.statusCode = 401;;
+            res.json({
+              message: 'User not authorised'
+            });
+          }
+        }).catch(err => next(err));
       } catch(e) {
         next(e);
       }
@@ -89,7 +86,7 @@ const auth = function(req, res, next) {
 }
 
 app.use('/', indexRouter);
-app.use('/users', usersRouter);
+app.use('/users', userRouter);
 
 // protected routes
 app.use(auth);
