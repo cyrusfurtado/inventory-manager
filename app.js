@@ -52,38 +52,9 @@ const auth = function(req, res, next) {
   if (user) {
     next();
   } else { // authenticate the user using basic method
-    const authorization = req.headers.authorization;
-    if(authorization) {
-      try {
-        const auth = new Buffer.from(authorization.split(' ')[1], 'base64').toString().split(':');
-  
-        const user = auth[0];
-        const pass = auth[1];
-    
-        clientQuery({
-          text: 'SELECT * FROM get_user($1)',
-          values: [user]
-        }).then(qres => {
-          const userdata = qres && qres.rows.length ? qres.rows[0] : {};
-          if( userdata.id && user === userdata.user_name && userdata.hash === saltHashPassword(pass, userdata.salt).passwordHash ) {
-            req.session.user = userdata.user_name;
-            next();
-          } else {
-            res.statusCode = 401;;
-            res.json({
-              message: 'User not authorised'
-            });
-          }
-        }).catch(err => next(err));
-      } catch(e) {
-        next(e);
-      }
-    } else {
-      res.setHeader('WWW-Authenticate', 'Basic');
-      const error = new Error('No authorization provided');
-      error.status = 401;
-      next(error);
-    }
+    const error = new Error('No authorization provided');
+    error.status = 401;
+    next(error);
   }
 }
 
