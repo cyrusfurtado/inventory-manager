@@ -2,6 +2,7 @@ var express = require('express');
 const crypto = require('crypto');
 var userRouter = express.Router();
 const { clientQuery, handleError, getFields } = require('../db/driver');
+const passport = require('passport');
 
 const genSalt = function(length) {
   return crypto.randomBytes(Math.round(length / 2)).toString('hex').slice(0, length);
@@ -53,32 +54,32 @@ const saltHashPassword = function(password, salt) {
 
 /* GET users listing. */
 userRouter.route('/login')
-        .get((req, res, next) => {
-          const credentials = { 
-            username: req.body.username,
-            email: req.body.email,
-            password: req.body.password
-          };
+        .get(passport.authenticate('local'), (req, res, next) => {
+          // const credentials = { 
+          //   username: req.body.username,
+          //   email: req.body.email,
+          //   password: req.body.password
+          // };
 
-          if (credentials.username) {
-            clientQuery({
-              text: 'SELECT * FROM get_user($1)',
-              values: [credentials.username]
-            }).then(qres => {
-              handleError(res, qres, userValidatonCallback(credentials, qres, req, res, next));
-            }).catch(err => next(err));
-          } else if (credentials.email) {
-            clientQuery({
-              text: 'SELECT * FROM get_user(\'\', $1)',
-              values: [credentials.email]
-            }).then(qres => {
-              handleError(res, qres, userValidatonCallback(credentials, qres, req, res, next));
-            }).catch(err => next(err));
-          } else {
-            const err = new Error('username / email missing');
-            err.status = 400;
-            next(err);
-          }
+          // if (credentials.username) {
+          //   clientQuery({
+          //     text: 'SELECT * FROM get_user($1)',
+          //     values: [credentials.username]
+          //   }).then(qres => {
+          //     handleError(res, qres, userValidatonCallback(credentials, qres, req, res, next));
+          //   }).catch(err => next(err));
+          // } else if (credentials.email) {
+          //   clientQuery({
+          //     text: 'SELECT * FROM get_user(\'\', $1)',
+          //     values: [credentials.email]
+          //   }).then(qres => {
+          //     handleError(res, qres, userValidatonCallback(credentials, qres, req, res, next));
+          //   }).catch(err => next(err));
+          // } else {
+          //   const err = new Error('username / email missing');
+          //   err.status = 400;
+          //   next(err);
+          // }
         });
 
         
@@ -95,8 +96,7 @@ userRouter.route('/signup')
               contact: req.body.contact
             };
 
-            // SELECT * FROM create_user('admin', 'admin@test.com', 'Cirius', null
-						//  , '87e0a2467ad6eeaceef8a8177b86b61cae191defed9c4c2dec395240bb40d32cc2bbacd889e6098ee93a1582fcc4831f2c11ae5474698733872a539e96108c55', '7c581a6ba15b4531', 'admin', null, null);
+            // passport.authenticate('local')(req, res, () => {});
             const passResult = saltHashPassword(userdata.password);
             clientQuery({
               text: 'SELECT * FROM create_user($1, $2, $3, $4, $5, $6, $7, $8, $9)',

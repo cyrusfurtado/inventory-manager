@@ -5,6 +5,8 @@ var cookieParser = require('cookie-parser');
 var logger = require('morgan');
 const session = require('express-session');
 const filestore = require('session-file-store')(session);
+const passport = require('passport');
+const authenticate = require('./authenticate');
 
 /**
  * initialise the db connection
@@ -46,7 +48,7 @@ app.use(session({
 
 // basic authorization
 const auth = function(req, res, next) {
-  const user = req.session ? req.session.user : null;
+  const user = req ? req.user : null;
   if (user) {
     next();
   } else { // authenticate the user using basic method
@@ -84,6 +86,9 @@ const auth = function(req, res, next) {
     }
   }
 }
+
+app.use(passport.initialize());
+app.use(passport.session());
 
 app.use('/', indexRouter);
 app.use('/users', userRouter);
