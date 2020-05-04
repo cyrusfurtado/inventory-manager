@@ -210,6 +210,74 @@ $_$;
 ALTER FUNCTION public.create_supplier(supplier character varying) OWNER TO postgres;
 
 --
+-- Name: create_user(character varying, character varying, character varying, character varying, character varying, character varying, character varying, character varying, character varying); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.create_user(user_name character varying, email character varying, first_name character varying, last_name character varying, hash character varying, salt character varying, user_type character varying, address character varying, phone character varying) RETURNS uuid
+    LANGUAGE plpgsql
+    AS $_$DECLARE
+	_uuid uuid := null;
+	i_count integer := 0;
+	_user_type varchar := 'guest';
+	_user_name varchar := '';
+	_user_email varchar := '';
+BEGIN
+	IF ( user_name IS DISTINCT FROM null OR email IS DISTINCT FROM null)
+	AND first_name IS DISTINCT FROM null
+	AND hash IS DISTINCT FROM null
+	AND salt IS DISTINCT FROM null THEN
+		IF user_name IS DISTINCT FROM null THEN
+			_user_name := user_name;
+		END IF;
+		
+		IF email IS DISTINCT FROM null THEN
+			_user_email := email;
+		END IF;
+		
+		IF user_type IS DISTINCT FROM null THEN
+			_user_type := user_type;
+		END IF;
+		
+		_uuid := uuid_generate_v4();
+
+		RAISE NOTICE '_suid: %', _uuid;
+
+		EXECUTE format('INSERT INTO users (
+							 	id, 
+							 	first_name,
+							 	last_name,
+								user_name,
+								email,
+								type,
+								created,
+								updated,
+								address,
+								phone,
+								hash,
+								salt)
+							 VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)') 
+							 USING 
+							 _uuid, first_name, last_name,
+							 _user_name, _user_email, _user_type,
+							 NOW(), cast(null AS timestamptz), address,
+							 phone, hash, salt;
+		GET DIAGNOSTICS i_count = ROW_COUNT;
+
+		IF i_count = 1 THEN
+			return _uuid;
+		ELSE
+			RAISE 'Ambigious [%] rows inserted', i_count;
+		END IF;
+	ELSE
+		RAISE 'Invalid username / email';
+	END IF;
+END;
+$_$;
+
+
+ALTER FUNCTION public.create_user(user_name character varying, email character varying, first_name character varying, last_name character varying, hash character varying, salt character varying, user_type character varying, address character varying, phone character varying) OWNER TO postgres;
+
+--
 -- Name: get_count(character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -227,7 +295,7 @@ ALTER FUNCTION public.get_count(table_name character varying) OWNER TO postgres;
 -- Name: get_order(uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION public.get_order(oid uuid) RETURNS TABLE(id uuid, title character varying, first character varying, last character varying, product_id uuid, number_shipped integer, order_date date)
+CREATE FUNCTION public.get_order(oid uuid) RETURNS TABLE(id uuid, title character varying, first character varying, last character varying, product_id uuid, number_shipped integer, order_date date, created timestamp with time zone, updated timestamp with time zone)
     LANGUAGE plpgsql
     AS $_$BEGIN
 	RETURN QUERY 
@@ -242,7 +310,7 @@ ALTER FUNCTION public.get_order(oid uuid) OWNER TO postgres;
 -- Name: get_orders(integer, integer, character varying, character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION public.get_orders(query_limit integer DEFAULT 10, page integer DEFAULT 1, col_name character varying DEFAULT NULL::character varying, col_dir character varying DEFAULT 'DESC'::character varying) RETURNS TABLE(id uuid, title character varying, first character varying, last character varying, product_id uuid, number_shipped integer, order_date date)
+CREATE FUNCTION public.get_orders(query_limit integer DEFAULT 10, page integer DEFAULT 1, col_name character varying DEFAULT NULL::character varying, col_dir character varying DEFAULT 'DESC'::character varying) RETURNS TABLE(id uuid, title character varying, first character varying, last character varying, product_id uuid, number_shipped integer, order_date date, created timestamp with time zone, updated timestamp with time zone)
     LANGUAGE plpgsql
     AS $_$DECLARE
 	query_offset integer := 0;
@@ -277,7 +345,7 @@ ALTER FUNCTION public.get_orders(query_limit integer, page integer, col_name cha
 -- Name: get_product(uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION public.get_product(pid uuid) RETURNS TABLE(id uuid, product_name character varying, part_number character varying, product_label character varying, starting_inventory integer, inventory_received integer, inventory_shipped integer, inventory_on_hand integer, minimum_required integer)
+CREATE FUNCTION public.get_product(pid uuid) RETURNS TABLE(id uuid, product_name character varying, part_number character varying, product_label character varying, starting_inventory integer, inventory_received integer, inventory_shipped integer, inventory_on_hand integer, minimum_required integer, created timestamp with time zone, updated timestamp with time zone)
     LANGUAGE plpgsql
     AS $_$BEGIN
 	RETURN QUERY 
@@ -292,7 +360,7 @@ ALTER FUNCTION public.get_product(pid uuid) OWNER TO postgres;
 -- Name: get_products(integer, integer, character varying, character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION public.get_products(query_limit integer DEFAULT 10, page integer DEFAULT 1, col_name character varying DEFAULT NULL::character varying, col_dir character varying DEFAULT 'DESC'::character varying) RETURNS TABLE(id uuid, product_name character varying, part_number character varying, product_label character varying, starting_inventory integer, inventory_received integer, inventory_shipped integer, inventory_on_hand integer, minimum_required integer)
+CREATE FUNCTION public.get_products(query_limit integer DEFAULT 10, page integer DEFAULT 1, col_name character varying DEFAULT NULL::character varying, col_dir character varying DEFAULT 'DESC'::character varying) RETURNS TABLE(id uuid, product_name character varying, part_number character varying, product_label character varying, starting_inventory integer, inventory_received integer, inventory_shipped integer, inventory_on_hand integer, minimum_required integer, created timestamp with time zone, updated timestamp with time zone)
     LANGUAGE plpgsql
     AS $_$DECLARE
 	query_offset integer := 0;
@@ -327,7 +395,7 @@ ALTER FUNCTION public.get_products(query_limit integer, page integer, col_name c
 -- Name: get_purchase(uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION public.get_purchase(pid uuid) RETURNS TABLE(id uuid, supplier_id uuid, product_id uuid, number_received integer, purchase_date date)
+CREATE FUNCTION public.get_purchase(pid uuid) RETURNS TABLE(id uuid, supplier_id uuid, product_id uuid, number_received integer, purchase_date date, created timestamp with time zone, updated timestamp with time zone)
     LANGUAGE plpgsql
     AS $_$BEGIN
 	RETURN QUERY 
@@ -342,7 +410,7 @@ ALTER FUNCTION public.get_purchase(pid uuid) OWNER TO postgres;
 -- Name: get_purchases(integer, integer, character varying, character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION public.get_purchases(query_limit integer DEFAULT 10, page integer DEFAULT 1, col_name character varying DEFAULT NULL::character varying, col_dir character varying DEFAULT 'DESC'::character varying) RETURNS TABLE(id uuid, supplier_id uuid, product_id uuid, number_received integer, purchase_date date)
+CREATE FUNCTION public.get_purchases(query_limit integer DEFAULT 10, page integer DEFAULT 1, col_name character varying DEFAULT NULL::character varying, col_dir character varying DEFAULT 'DESC'::character varying) RETURNS TABLE(id uuid, supplier_id uuid, product_id uuid, number_received integer, purchase_date date, created timestamp with time zone, updated timestamp with time zone)
     LANGUAGE plpgsql
     AS $_$DECLARE
 	query_offset integer := 0;
@@ -376,7 +444,7 @@ ALTER FUNCTION public.get_purchases(query_limit integer, page integer, col_name 
 -- Name: get_supplier(uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION public.get_supplier(sid uuid) RETURNS TABLE(id uuid, supplier character varying)
+CREATE FUNCTION public.get_supplier(sid uuid) RETURNS TABLE(id uuid, supplier character varying, created timestamp with time zone, updated timestamp with time zone)
     LANGUAGE plpgsql
     AS $_$BEGIN
 	RETURN QUERY 
@@ -391,7 +459,7 @@ ALTER FUNCTION public.get_supplier(sid uuid) OWNER TO postgres;
 -- Name: get_suppliers(integer, integer, character varying, character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION public.get_suppliers(query_limit integer DEFAULT 10, page integer DEFAULT 1, col_name character varying DEFAULT NULL::character varying, col_dir character varying DEFAULT 'ASC'::character varying) RETURNS TABLE(id uuid, supplier character varying)
+CREATE FUNCTION public.get_suppliers(query_limit integer DEFAULT 10, page integer DEFAULT 1, col_name character varying DEFAULT NULL::character varying, col_dir character varying DEFAULT 'ASC'::character varying) RETURNS TABLE(id uuid, supplier character varying, created timestamp with time zone, updated timestamp with time zone)
     LANGUAGE plpgsql
     AS $_$DECLARE
 	query_offset integer := 0;
@@ -421,6 +489,27 @@ END;$_$;
 
 
 ALTER FUNCTION public.get_suppliers(query_limit integer, page integer, col_name character varying, col_dir character varying) OWNER TO postgres;
+
+--
+-- Name: get_user(character varying, character varying); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.get_user(username character varying DEFAULT ''::character varying, useremail character varying DEFAULT ''::character varying) RETURNS TABLE(id uuid, first_name character varying, last_name character varying, user_name character varying, email character varying, type character varying, created timestamp with time zone, updated timestamp with time zone, address character varying, phone character varying, hash character varying, salt character varying)
+    LANGUAGE plpgsql
+    AS $_$
+BEGIN
+	IF username IS DISTINCT FROM '' THEN
+		RETURN QUERY EXECUTE format('SELECT * FROM users WHERE user_name = $1') USING username;
+	ELSIF useremail IS DISTINCT FROM '' THEN
+		RETURN QUERY EXECUTE format('SELECT * FROM users WHERE email = $1') USING useremail;
+	ELSE
+		RAISE 'Invalid argument list. Enter a username / email.';
+	END IF;
+END;
+$_$;
+
+
+ALTER FUNCTION public.get_user(username character varying, useremail character varying) OWNER TO postgres;
 
 --
 -- Name: remove_order(uuid); Type: FUNCTION; Schema: public; Owner: postgres
@@ -944,6 +1033,10 @@ CREATE TABLE public.users (
     type character varying(20) NOT NULL,
     created timestamp(0) with time zone NOT NULL,
     updated timestamp(0) with time zone,
+    address character varying,
+    phone character varying(20),
+    hash character varying NOT NULL,
+    salt character varying NOT NULL,
     CONSTRAINT users_type_check CHECK ((((type)::text = 'admin'::text) OR ((type)::text = 'guest'::text) OR ((type)::text = 'entry'::text) OR ((type)::text = 'audit'::text)))
 );
 
@@ -974,6 +1067,16 @@ COPY public.audit_logs (id, target_id, table_name, query_type, user_name, "time"
 12	4ad15174-f20b-441d-9e83-e54b497e7433	purchases	UPDATE	anonymous	2020-04-28 13:53:04.481428+05:30
 13	6f95268b-a8c9-4129-a9ed-d142d05dc2ab	suppliers	INSERT	anonymous	2020-04-28 14:04:37.551678+05:30
 14	6f95268b-a8c9-4129-a9ed-d142d05dc2ab	suppliers	UPDATE	anonymous	2020-04-28 14:05:32.977536+05:30
+15	411e9461-57b3-4980-9795-36ec6aebaa1c	suppliers	UPDATE	anonymous	2020-04-30 13:14:13.366207+05:30
+17	52901450-ee60-494e-8c81-2461623f2607	users	INSERT	anonymous	2020-05-02 14:22:04.665574+05:30
+18	9b586758-f3c5-4afb-84ad-d9158dc70e4a	users	INSERT	anonymous	2020-05-02 16:47:46.285105+05:30
+19	8765fbea-213e-43e3-a7de-16a4a5ee8d27	users	INSERT	anonymous	2020-05-03 16:46:09.739688+05:30
+20	cc9204c2-f839-47d1-8771-0c0eb0ed2f4e	users	INSERT	anonymous	2020-05-03 16:47:59.949953+05:30
+21	fbdccb0f-535a-4c32-973f-de4f0897fe83	users	INSERT	anonymous	2020-05-03 16:58:00.839999+05:30
+22	7fde3e51-d118-4f4e-bb42-220ea5e7302b	users	INSERT	anonymous	2020-05-03 16:59:13.112278+05:30
+23	73522759-0a85-4694-8ec8-37f94c981aba	users	INSERT	anonymous	2020-05-03 17:04:11.5467+05:30
+24	48d4a60e-215f-4dfb-807a-eac0a7764417	users	INSERT	anonymous	2020-05-03 17:08:58.294452+05:30
+25	bea946ee-4d1b-4c9b-b1d4-711fc49095e0	users	INSERT	anonymous	2020-05-03 17:09:57.770023+05:30
 \.
 
 
@@ -1165,8 +1268,8 @@ b7c4ad5c-6a02-4fc0-b9b5-3a405c24468a	Forest Laboratories, Inc.	\N	\N
 46c62e98-6f4d-430f-a177-2527970ea719	Bausch & Lomb Incorporated	\N	\N
 ebe237c7-1776-47f0-b8be-4698e282710c	PD-Rx Pharmaceuticals, Inc.	\N	\N
 098e7f0e-c844-4fef-8e04-edadd9661a45	Wal-Mart Stores Inc	\N	\N
-411e9461-57b3-4980-9795-36ec6aebaa1c	 Wockhardt USA LLC.	\N	\N
 6f95268b-a8c9-4129-a9ed-d142d05dc2ab	Dom Dominque Inc.	2020-04-28 14:04:37.551678+05:30	2020-04-28 14:05:32.977536+05:30
+411e9461-57b3-4980-9795-36ec6aebaa1c	Wockhardt USA LLC.	\N	2020-04-30 13:14:13.366207+05:30
 \.
 
 
@@ -1174,7 +1277,16 @@ ebe237c7-1776-47f0-b8be-4698e282710c	PD-Rx Pharmaceuticals, Inc.	\N	\N
 -- Data for Name: users; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-COPY public.users (id, first_name, last_name, user_name, email, type, created, updated) FROM stdin;
+COPY public.users (id, first_name, last_name, user_name, email, type, created, updated, address, phone, hash, salt) FROM stdin;
+52901450-ee60-494e-8c81-2461623f2607	Cirius	\N	admin	admin@test.com	admin	2020-05-02 14:22:05+05:30	\N	\N	\N	87e0a2467ad6eeaceef8a8177b86b61cae191defed9c4c2dec395240bb40d32cc2bbacd889e6098ee93a1582fcc4831f2c11ae5474698733872a539e96108c55	7c581a6ba15b4531
+9b586758-f3c5-4afb-84ad-d9158dc70e4a	Dwain	\N	dwayn	dwayn@gmail.co.in	guest	2020-05-02 16:47:46+05:30	\N	no mans land	9087564512	e69eaf4025fab5d65ac763b633a28d1e42427d8e1f4ed88f258485e33f717fd2a8418c0ca41ec9ca09324e92b228ac9e80248ac4d7fb0e79a3ef08e8ccbc5676	55ab2117c705d907
+8765fbea-213e-43e3-a7de-16a4a5ee8d27	Dwain 2	\N	dwayn2	dwayn2@gmail.co.in	guest	2020-05-03 16:46:10+05:30	\N	no mans land	9087564512	116c67c345813547adf842a6a3014a8466d65529956000c77abed592d9087acbe9435aefcef63c99f2740c046fab3dba4ee407fb64283f77332169abc7708093	72a2e55f55745123
+cc9204c2-f839-47d1-8771-0c0eb0ed2f4e	Dwain 3	\N	dwayn3	dwayn3@gmail.co.in	guest	2020-05-03 16:48:00+05:30	\N	no mans land	9087564512	a2513da7662c59550fea30026f6bfd117489989133a2163c7cd9d10540ba6016329e5005136875858663fcd88d57ececc852e698e1cd236510dcf27a2fe8a7a9	5fb0d97cfa201e28
+fbdccb0f-535a-4c32-973f-de4f0897fe83	Dwain 4	\N	dwayn4	dwayn4@gmail.co.in	guest	2020-05-03 16:58:01+05:30	\N	no mans land	9087564512	fc30a2f857d0630c2517f46c645ccc7681b194532d321f4d30b06964d0a63abc8f14894b081c8f994d50941117a0d531cb8b313252680870eec0225dee9e0a3f	682ce51c9883d316
+7fde3e51-d118-4f4e-bb42-220ea5e7302b	Dwain 5	\N	dwayn5	dwayn5@gmail.co.in	guest	2020-05-03 16:59:13+05:30	\N	no mans land	9087564512	582a9992d49551df37a89b69408ff332c3111a5acc34b73a329e1e7401b93d0e020bad720c2f34d52f40b34149fb4e9e9db4e15e98b753806383eff448892aad	78526506cc3f7a3e
+73522759-0a85-4694-8ec8-37f94c981aba	Dwain 6	\N	dwayn6	dwayn6@gmail.co.in	guest	2020-05-03 17:04:12+05:30	\N	no mans land	9087564512	4990edc113abbb16e2861a3ea553fe8cb06532234c5d9fb924a899a47f33f6343bc9b834cf0872e1c9e3a8541f9868e0965e058e00a359d74c8b5197c21a2a32	972a8867b22f0175
+48d4a60e-215f-4dfb-807a-eac0a7764417	Dwain 7	\N	dwayn7	dwayn7@gmail.co.in	guest	2020-05-03 17:08:58+05:30	\N	no mans land	9087564512	7e06968f5fee504a92511b1aae1628d37a4da5fdbfe651c58d25eed156820d6570dc9775b2f6af0c3373b720f0f71927fee39b9fdebd19b32a5612c82ed0ec05	eb7ae648d47e2388
+bea946ee-4d1b-4c9b-b1d4-711fc49095e0	Dwain 8	\N	dwayn8	dwayn8@gmail.co.in	guest	2020-05-03 17:09:58+05:30	\N	no mans land	9087564512	93d2d8ae9591ba15f6f8c05f058751dc63bdff46dd03adfae46d8fa18b493f8bb3b90d967033ece1113805cca802ddb893a4a46f9cce7b6af12b5ec17d8604d2	eabc0c074b648c06
 \.
 
 
@@ -1182,7 +1294,7 @@ COPY public.users (id, first_name, last_name, user_name, email, type, created, u
 -- Name: audit_logs_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.audit_logs_id_seq', 14, true);
+SELECT pg_catalog.setval('public.audit_logs_id_seq', 25, true);
 
 
 --
@@ -1226,11 +1338,43 @@ ALTER TABLE ONLY public.suppliers
 
 
 --
+-- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_email_key UNIQUE (email);
+
+
+--
+-- Name: users users_hash_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_hash_key UNIQUE (hash);
+
+
+--
 -- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: users users_salt_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_salt_key UNIQUE (salt);
+
+
+--
+-- Name: users users_user_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_user_name_key UNIQUE (user_name);
 
 
 --

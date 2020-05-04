@@ -17,5 +17,13 @@
     "passport-local": "^1.0.0",
     "pg": "^8.0.2",
     "session-file-store": "^1.4.0"
+  },
+  "husky": {
+    "hooks": {
+      "pre-push": "pg_dump -U postgres -p 5432 -d inventorymanager -f db/dump/exports/invmanager.pgsql"
+    }
+  },
+  "devDependencies": {
+    "husky": "^4.2.5"
   }
 }
