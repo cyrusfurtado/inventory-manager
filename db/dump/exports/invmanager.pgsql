@@ -37,12 +37,42 @@ COMMENT ON EXTENSION "uuid-ossp" IS 'generate universally unique identifiers (UU
 CREATE FUNCTION public.create_order(title character varying, first_name character varying, last_name character varying, product_id uuid, number_shipped integer, order_date date) RETURNS uuid
     LANGUAGE plpgsql
     AS $_$DECLARE
+	_p_inv_shipped integer := 0;
+	_p_inv_on_hand integer := 0;
+	_p_min_required integer := 0;
+	_rec record := null;
 	_ouid uuid := null;
 	i_count integer := 0;
+	pr_u_count integer := 0;
 BEGIN
+	EXECUTE format('SELECT inventory_shipped, inventory_on_hand, minimum_required FROM products WHERE id = $1')
+	USING product_id INTO _rec;
+	
+	_p_inv_shipped := _rec.inventory_shipped;
+	_p_inv_on_hand := _rec.inventory_on_hand;
+	_p_min_required := _rec.minimum_required;
+
+	IF number_shipped > _p_inv_on_hand THEN
+		RAISE 'shipped_count: % greater than available inventory: %', number_shipped, _p_inv_on_hand;
+	END IF;
+
+	-- get updated inventory on hand value
+	_p_inv_on_hand := _p_inv_on_hand - number_shipped;
+	
+	IF _p_inv_on_hand < _p_min_required THEN
+		RAISE NOTICE 'Running low on stock. Send mail to supplier';
+	END IF;
+	
+	-- calucate new value for shipped inventory
+	_p_inv_shipped := _p_inv_shipped + number_shipped;
+	
+	EXECUTE format('UPDATE products SET inventory_on_hand = $2, inventory_shipped = $3, updated = $4 WHERE id = $1') 
+	USING product_id, _p_inv_on_hand, _p_inv_shipped, NOW();
+	GET DIAGNOSTICS pr_u_count = ROW_COUNT;
+	
 	_ouid := uuid_generate_v4();
 	
-	RAISE NOTICE '_puid: %', _ouid;
+	RAISE NOTICE 'order uuid: %', _ouid;
 		
 	EXECUTE format('INSERT INTO orders (
 						 id, 
@@ -65,8 +95,12 @@ BEGIN
 						 NOW();
 	GET DIAGNOSTICS i_count = ROW_COUNT;
 	
-	IF i_count = 1 THEN
+	IF pr_u_count = 1 AND i_count = 1 THEN
 		return _ouid;
+	ELSIF pr_u_count = 1 AND i_count = 0 THEN
+		RAISE 'Order could not be inserted';
+	ELSIF pr_u_count = 0 AND i_count = 1 THEN
+		RAISE 'Product could not be updated';
 	ELSE
 		RAISE 'Ambigious [%] rows inserted', i_count;
 	END IF;
@@ -646,6 +680,73 @@ $$;
 ALTER FUNCTION public.update_column() OWNER TO postgres;
 
 --
+-- Name: update_order(uuid, integer, integer, integer); Type: PROCEDURE; Schema: public; Owner: postgres
+--
+
+CREATE PROCEDURE public.update_order(puid uuid, shipped_count integer, INOUT pr_u_count integer DEFAULT 0, INOUT od_u_count integer DEFAULT 0)
+    LANGUAGE plpgsql
+    AS $_$DECLARE
+	_p_inv_shipped integer := 0;
+	_p_inv_on_hand integer := 0;
+	_p_min_required integer := 0;
+	_rec record := null;
+	ouid uuid := null;
+BEGIN
+	EXECUTE format('SELECT inventory_shipped, inventory_on_hand, minimum_required FROM products WHERE id = $1')
+	USING puid INTO _rec;
+	
+	_p_inv_shipped := _rec.inventory_shipped;
+	_p_inv_on_hand := _rec.inventory_on_hand;
+	_p_min_required := _rec.minimum_required;
+	
+	IF shipped_count > _p_inv_on_hand THEN
+		RAISE 'shipped_count: % greater than available inventory: %', shipped_count, _p_inv_on_hand;
+	END IF;
+	
+	-- get updated inventory on hand value
+	_p_inv_on_hand := _p_inv_on_hand - shipped_count;
+	
+	IF _p_inv_on_hand < _p_min_required THEN
+		RAISE NOTICE 'Running low on stock. Send mail to supplier';
+	END IF;
+	
+	-- calucate new value for shipped inventory
+	_p_inv_shipped := _p_inv_shipped + shipped_count;
+	
+	EXECUTE format('UPDATE products SET inventory_on_hand = $2, inventory_shipped = $3 WHERE id = $1') 
+	USING puid, _p_inv_on_hand, _p_inv_shipped;
+	GET DIAGNOSTICS pr_u_count = ROW_COUNT;
+	
+	ouid := uuid_generate_v4();
+	EXECUTE format('INSERT INTO orders (
+						 id, 
+						 title, 
+						 first, 
+						 last, 
+						 product_id, 
+						 number_shipped, 
+						 order_date,
+				  		 created)
+						 VALUES($1, $2, $3, $4, $5, $6, $7, $8)') 
+						 USING 
+						 ouid,
+						 'Mrs',
+						 'Fourth Dynamic',
+						 'Order',
+						 puid,
+						 shipped_count,
+						 cast('2019-12-22' AS DATE),
+						 NOW();
+	GET DIAGNOSTICS od_u_count = ROW_COUNT;
+	
+	RAISE NOTICE 'new inv on hand: %, min required: %, products updated: % orders inserted: %', _p_inv_on_hand, _p_min_required, pr_u_count, od_u_count;
+END;
+$_$;
+
+
+ALTER PROCEDURE public.update_order(puid uuid, shipped_count integer, INOUT pr_u_count integer, INOUT od_u_count integer) OWNER TO postgres;
+
+--
 -- Name: update_order(uuid, character varying, character varying, character varying, uuid, integer, date); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1077,6 +1178,23 @@ COPY public.audit_logs (id, target_id, table_name, query_type, user_name, "time"
 23	73522759-0a85-4694-8ec8-37f94c981aba	users	INSERT	anonymous	2020-05-03 17:04:11.5467+05:30
 24	48d4a60e-215f-4dfb-807a-eac0a7764417	users	INSERT	anonymous	2020-05-03 17:08:58.294452+05:30
 25	bea946ee-4d1b-4c9b-b1d4-711fc49095e0	users	INSERT	anonymous	2020-05-03 17:09:57.770023+05:30
+29	c9b21e32-9548-497c-9ed7-0011a4f3ec92	products	UPDATE	anonymous	2020-05-05 15:41:24.308774+05:30
+30	0bac351c-ae0a-423c-a9b6-771bd15c9433	orders	INSERT	anonymous	2020-05-05 15:41:24.308774+05:30
+31	c9b21e32-9548-497c-9ed7-0011a4f3ec92	products	UPDATE	anonymous	2020-05-05 15:46:14.704121+05:30
+32	c9b21e32-9548-497c-9ed7-0011a4f3ec92	products	UPDATE	anonymous	2020-05-05 15:48:32.815369+05:30
+33	01399fb1-6eea-4953-9188-45360e2e685d	orders	INSERT	anonymous	2020-05-05 15:48:32.815369+05:30
+34	c9b21e32-9548-497c-9ed7-0011a4f3ec92	products	UPDATE	anonymous	2020-05-05 15:49:55.349076+05:30
+35	e70f22df-1d2c-475d-bbe5-a4ef232b79fd	orders	INSERT	anonymous	2020-05-05 15:49:55.349076+05:30
+36	c9b21e32-9548-497c-9ed7-0011a4f3ec92	products	UPDATE	anonymous	2020-05-05 15:53:26.47125+05:30
+37	4715b5e3-3ae8-459f-a2b0-c7d96e770fec	orders	INSERT	anonymous	2020-05-05 15:53:26.47125+05:30
+38	21bbd1d4-aa17-4429-9d7a-46049c306020	products	UPDATE	anonymous	2020-05-05 16:33:20.49179+05:30
+39	943b5601-12d7-4f71-9d1f-6cd68eae65c4	orders	INSERT	anonymous	2020-05-05 16:33:20.49179+05:30
+40	3caef524-81aa-4879-940a-4b3621434d03	products	UPDATE	anonymous	2020-05-05 16:44:52.41969+05:30
+41	6f037cba-27e3-4654-9108-98f0a1ee2f08	orders	INSERT	anonymous	2020-05-05 16:44:52.41969+05:30
+42	3caef524-81aa-4879-940a-4b3621434d03	products	UPDATE	anonymous	2020-05-05 16:49:23.563937+05:30
+43	c1c01800-f3dd-4573-a8e7-7a437ced4814	orders	INSERT	anonymous	2020-05-05 16:49:23.563937+05:30
+44	3caef524-81aa-4879-940a-4b3621434d03	products	UPDATE	anonymous	2020-05-05 16:51:31.766228+05:30
+45	76fa6589-2a41-4fa0-b4c9-0ce57ee678f9	orders	INSERT	anonymous	2020-05-05 16:51:31.766228+05:30
 \.
 
 
@@ -1117,6 +1235,14 @@ c5be5a02-d179-44b4-b904-0741d29ae0a5	Dr	Murry	Laxe	acdb44fb-9fb9-4fb8-87b0-599f5
 e2e850c7-82f3-4f37-8e0b-c956e2dfceec	Ms	Marlo	Laugheran	69d16bf4-afe9-410d-9afe-ec85a2ebea3b	200	2020-08-06	\N	\N
 824a40c1-0ec1-4d2c-abd7-e29755b5878f	Mr.	John	Snow	68643051-9b6f-44a4-bd72-2ddc8b8b6123	20	0323-12-14	\N	\N
 967045ab-385f-482e-96e1-12108cda0bab	Mr.	Joey	Snowden	68643051-9b6f-44a4-bd72-2ddc8b8b6123	50	2019-12-14	\N	\N
+0bac351c-ae0a-423c-a9b6-771bd15c9433	Mr	First Dynamic	Order	c9b21e32-9548-497c-9ed7-0011a4f3ec92	300	2019-12-22	2020-05-05 15:41:24.308774+05:30	\N
+01399fb1-6eea-4953-9188-45360e2e685d	Mrs	Second Dynamic	Order	c9b21e32-9548-497c-9ed7-0011a4f3ec92	30	2019-12-22	2020-05-05 15:48:32.815369+05:30	\N
+e70f22df-1d2c-475d-bbe5-a4ef232b79fd	Mrs	Third Dynamic	Order	c9b21e32-9548-497c-9ed7-0011a4f3ec92	91	2019-12-22	2020-05-05 15:49:55.349076+05:30	\N
+4715b5e3-3ae8-459f-a2b0-c7d96e770fec	Mrs	Fourth Dynamic	Order	c9b21e32-9548-497c-9ed7-0011a4f3ec92	5	2019-12-22	2020-05-05 15:53:26.47125+05:30	\N
+943b5601-12d7-4f71-9d1f-6cd68eae65c4	Mr.	Sand	Box	21bbd1d4-aa17-4429-9d7a-46049c306020	200	2020-02-20	2020-05-05 16:33:20.49179+05:30	\N
+6f037cba-27e3-4654-9108-98f0a1ee2f08	Dr.	Sujay	Kumar	3caef524-81aa-4879-940a-4b3621434d03	100	2020-02-24	2020-05-05 16:44:52.41969+05:30	\N
+c1c01800-f3dd-4573-a8e7-7a437ced4814	Dr.	Surya	Kumar	3caef524-81aa-4879-940a-4b3621434d03	200	2020-02-24	2020-05-05 16:49:23.563937+05:30	\N
+76fa6589-2a41-4fa0-b4c9-0ce57ee678f9	Dr.	Surya	Kumar	3caef524-81aa-4879-940a-4b3621434d03	5000	2020-02-24	2020-05-05 16:51:31.766228+05:30	\N
 \.
 
 
@@ -1126,14 +1252,14 @@ e2e850c7-82f3-4f37-8e0b-c956e2dfceec	Ms	Marlo	Laugheran	69d16bf4-afe9-410d-9afe-
 
 COPY public.products (id, product_name, part_number, product_label, starting_inventory, inventory_received, inventory_shipped, inventory_on_hand, minimum_required, created, updated) FROM stdin;
 d8fc2201-7ef5-4311-ae00-31f128a7304d	tosaxofon	xxx-0099	tosaxinnnn	500	100	50	550	50	\N	\N
-c9b21e32-9548-497c-9ed7-0011a4f3ec92	test pr	2321-4413	my product	400	40	10	430	10	\N	\N
 54f0e223-b857-484d-a6d0-712e77c0c129	my test pr	xxyy-4413	my-product	500	40	10	530	10	\N	\N
 17868893-ac73-424c-8f31-39325192f052	mysstest pr	xxyy-4413	my-product	500	40	10	530	10	\N	\N
+c9b21e32-9548-497c-9ed7-0011a4f3ec92	test pr	2321-4413	my product	400	40	436	4	10	\N	\N
+21bbd1d4-aa17-4429-9d7a-46049c306020	furosemide	CPU-482228	Lasix	8566	1444	1913	8097	971	\N	\N
+3caef524-81aa-4879-940a-4b3621434d03	petrolatum	JLJ-731517	Personal Care Petroleum	6872	687	6674	885	352	\N	2020-05-05 16:51:31.766228+05:30
 4b96c64d-c890-47b6-9d88-6f1e8d4a1b96	Antibacterial Hand Soap	AFU-353091	WhiskCare 367	5480	4267	1096	8651	565	\N	\N
 fd7370a9-9b36-470c-8fee-26dedcec4669	Methyl Salicylate, Menthol and Capsaicin	QXJ-199396	Overtime	6640	3964	1328	9276	238	\N	\N
 d0ae730e-d79a-4f01-9bb4-42cdf1d8e90a	Divalproex Sodium	LWR-817212	Divalproex Sodium	7617	762	1523	6856	282	\N	\N
-21bbd1d4-aa17-4429-9d7a-46049c306020	furosemide	CPU-482228	Lasix	8566	1444	1713	8297	971	\N	\N
-3caef524-81aa-4879-940a-4b3621434d03	petrolatum	JLJ-731517	Personal Care Petroleum	6872	687	1374	6185	352	\N	\N
 647290c1-28de-4372-8a88-40cbb93f497f	disopyramide phosphate	ULR-360250	Norpace	2038	2371	408	4001	647	\N	\N
 68643051-9b6f-44a4-bd72-2ddc8b8b6123	Pinchot Juniper	AMU-671937	Pinchot Juniper	3777	2314	755	5336	813	\N	\N
 f6868042-723d-4ef9-9b0e-bbe906bedb3d	spironolactone	RXR-692802	Spironolactone	4577	3602	915	7264	163	\N	\N
@@ -1294,7 +1420,7 @@ bea946ee-4d1b-4c9b-b1d4-711fc49095e0	Dwain 8	\N	dwayn8	dwayn8@gmail.co.in	guest	
 -- Name: audit_logs_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.audit_logs_id_seq', 25, true);
+SELECT pg_catalog.setval('public.audit_logs_id_seq', 45, true);
 
 
 --
