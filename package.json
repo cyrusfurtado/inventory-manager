@@ -3,7 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "start": "node ./bin/www"
+    "start": "node ./bin/www",
+    "dump-db": "pg_dump -U postgres -p 5432 -d inventorymanager -f db/dump/exports/invmanager.pgsql"
   },
   "dependencies": {
     "cookie-parser": "~1.4.4",
@@ -20,7 +21,7 @@
   },
   "husky": {
     "hooks": {
-      "pre-push": "pg_dump -U postgres -p 5432 -d inventorymanager -f db/dump/exports/invmanager.pgsql"
+      "pre-push": "npm run dump-db && git add ./db/dump/exports/invmanager.pgsql && git commit -m \"database dump added\" && sleep 1"
     }
   },
   "devDependencies": {
