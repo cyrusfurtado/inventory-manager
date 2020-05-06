@@ -174,6 +174,11 @@ CREATE FUNCTION public.create_purchase(supplier_id uuid, product_id uuid, number
     AS $_$DECLARE
 	_puid uuid := null;
 	i_count integer := 0;
+	_pr_rec record := null;
+	_inventory_received integer := 0;
+	_inventory_on_hand integer := 0;
+	_minimum_required integer := 0;
+	_pr_u_count integer := 0;
 BEGIN
 	_puid := uuid_generate_v4();
 	
@@ -196,10 +201,39 @@ BEGIN
 						 NOW();
 	GET DIAGNOSTICS i_count = ROW_COUNT;
 	
-	IF i_count = 1 THEN
+	EXECUTE format('SELECT inventory_received, inventory_on_hand, minimum_required FROM products 
+				   WHERE id = $1') USING product_id INTO _pr_rec;
+				   
+	_inventory_received := _pr_rec.inventory_received;
+	_inventory_on_hand := _pr_rec.inventory_on_hand;
+	_minimum_required := _pr_rec.minimum_required;
+	
+	-- update inventory recieved
+	_inventory_received := _inventory_received + number_received;
+	
+	-- update inventory on hand
+	_inventory_on_hand := _inventory_on_hand + number_received;
+	
+	IF _minimum_required >= _inventory_on_hand THEN
+		RAISE NOTICE 'We have minimum required. Send email to stockist';
+	END IF;
+	
+	EXECUTE format('UPDATE products SET inventory_received = $1,
+				   inventory_on_hand = $2, updated = $3 WHERE id = $4') 
+				   USING _inventory_received,
+				   _inventory_on_hand,
+				   NOW(),
+				   product_id;
+	GET DIAGNOSTICS _pr_u_count = ROW_COUNT;
+	
+	IF i_count = 1 AND _pr_u_count = 1 THEN
 		return _puid;
+	ELSIF i_count = 1 AND _pr_u_count = 0 THEN
+		RAISE 'Unable to update product %', product_id;
+	ELSIF i_count = 0 AND _pr_u_count = 1 THEN
+		RAISE 'Unable to commit purchase with % inserted', i_count;
 	ELSE
-		RAISE 'Ambigious [%] rows inserted', i_count;
+		RAISE 'Ambigious rows inserted [%] & updated [%]', i_count, _pr_u_count;
 	END IF;
 END;
 $_$;
@@ -493,12 +527,13 @@ ALTER FUNCTION public.get_supplier(sid uuid) OWNER TO postgres;
 -- Name: get_suppliers(integer, integer, character varying, character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION public.get_suppliers(query_limit integer DEFAULT 10, page integer DEFAULT 1, col_name character varying DEFAULT NULL::character varying, col_dir character varying DEFAULT 'ASC'::character varying) RETURNS TABLE(id uuid, supplier character varying, created timestamp with time zone, updated timestamp with time zone)
+CREATE FUNCTION public.get_suppliers(query_limit integer DEFAULT 10, page integer DEFAULT 1, col_name character varying DEFAULT NULL::character varying, col_dir character varying DEFAULT 'ASC'::character varying) RETURNS TABLE(id uuid, supplier character varying, created character varying, updated character varying)
     LANGUAGE plpgsql
     AS $_$DECLARE
 	query_offset integer := 0;
 	_col_name varchar := 'supplier';
 	_col_dir varchar := 'ASC';
+	_default_cell_text varchar(20) := 'Not available';
 BEGIN
 	query_offset := (page - 1) * query_limit;
 	
@@ -512,9 +547,14 @@ BEGIN
 	
 	-- use quote_ident(sort_by)
 	IF upper(_col_dir) IN ('ASC', 'DESC') THEN
-		RETURN QUERY EXECUTE format('SELECT * FROM suppliers  
-				ORDER BY %s %s LIMIT $1
-				OFFSET $2', _col_name, _col_dir) USING query_limit, query_offset;	
+		RETURN QUERY EXECUTE format('SELECT 
+									id,
+									supplier,
+									COALESCE(cast(created AS varchar), $3),
+									COALESCE(cast(updated AS varchar), $3)
+									FROM suppliers  
+				ORDER BY %1$s %2$s LIMIT $1
+				OFFSET $2', _col_name, _col_dir) USING query_limit, query_offset, _default_cell_text;	
 	ELSE
 		RAISE 'ambigious order by direction';
 	END IF;
@@ -1195,6 +1235,10 @@ COPY public.audit_logs (id, target_id, table_name, query_type, user_name, "time"
 43	c1c01800-f3dd-4573-a8e7-7a437ced4814	orders	INSERT	anonymous	2020-05-05 16:49:23.563937+05:30
 44	3caef524-81aa-4879-940a-4b3621434d03	products	UPDATE	anonymous	2020-05-05 16:51:31.766228+05:30
 45	76fa6589-2a41-4fa0-b4c9-0ce57ee678f9	orders	INSERT	anonymous	2020-05-05 16:51:31.766228+05:30
+46	74339498-7573-49f9-b285-bde4bfc9d5a1	purchases	INSERT	anonymous	2020-05-06 11:53:48.743431+05:30
+47	3caef524-81aa-4879-940a-4b3621434d03	products	UPDATE	anonymous	2020-05-06 11:53:48.743431+05:30
+48	f6ec3b9f-ff14-4541-8acb-5b7e3cc08c4d	purchases	INSERT	anonymous	2020-05-06 11:59:31.76907+05:30
+49	3caef524-81aa-4879-940a-4b3621434d03	products	UPDATE	anonymous	2020-05-06 11:59:31.76907+05:30
 \.
 
 
@@ -1256,7 +1300,7 @@ d8fc2201-7ef5-4311-ae00-31f128a7304d	tosaxofon	xxx-0099	tosaxinnnn	500	100	50	55
 17868893-ac73-424c-8f31-39325192f052	mysstest pr	xxyy-4413	my-product	500	40	10	530	10	\N	\N
 c9b21e32-9548-497c-9ed7-0011a4f3ec92	test pr	2321-4413	my product	400	40	436	4	10	\N	\N
 21bbd1d4-aa17-4429-9d7a-46049c306020	furosemide	CPU-482228	Lasix	8566	1444	1913	8097	971	\N	\N
-3caef524-81aa-4879-940a-4b3621434d03	petrolatum	JLJ-731517	Personal Care Petroleum	6872	687	6674	885	352	\N	2020-05-05 16:51:31.766228+05:30
+3caef524-81aa-4879-940a-4b3621434d03	petrolatum	JLJ-731517	Personal Care Petroleum	6872	1287	6674	1485	352	\N	2020-05-06 11:59:31.76907+05:30
 4b96c64d-c890-47b6-9d88-6f1e8d4a1b96	Antibacterial Hand Soap	AFU-353091	WhiskCare 367	5480	4267	1096	8651	565	\N	\N
 fd7370a9-9b36-470c-8fee-26dedcec4669	Methyl Salicylate, Menthol and Capsaicin	QXJ-199396	Overtime	6640	3964	1328	9276	238	\N	\N
 d0ae730e-d79a-4f01-9bb4-42cdf1d8e90a	Divalproex Sodium	LWR-817212	Divalproex Sodium	7617	762	1523	6856	282	\N	\N
@@ -1319,6 +1363,8 @@ COPY public.purchases (id, supplier_id, product_id, number_received, purchase_da
 32415f93-47d5-41e9-999b-05ab0bc817ce	8659773b-2c78-4896-848d-5c9c4bb48e27	b45cbb39-69eb-4e83-a665-c243940d2bbd	10	2019-07-05	\N	\N
 1f4137a5-0767-4b9e-a33f-f88f9ffac681	8659773b-2c78-4896-848d-5c9c4bb48e27	b45cbb39-69eb-4e83-a665-c243940d2bbd	10	2019-07-05	\N	\N
 4ad15174-f20b-441d-9e83-e54b497e7433	8659773b-2c78-4896-848d-5c9c4bb48e27	b45cbb39-69eb-4e83-a665-c243940d2bbd	37	2019-07-05	\N	\N
+74339498-7573-49f9-b285-bde4bfc9d5a1	a738f182-601a-4a67-98c0-b46165680fc3	3caef524-81aa-4879-940a-4b3621434d03	100	2020-04-19	\N	2020-05-06 11:53:48.743431+05:30
+f6ec3b9f-ff14-4541-8acb-5b7e3cc08c4d	a738f182-601a-4a67-98c0-b46165680fc3	3caef524-81aa-4879-940a-4b3621434d03	500	2020-04-19	\N	2020-05-06 11:59:31.76907+05:30
 e5ddc2ae-b853-422e-bebf-c07d801d6662	f3267a7a-e10e-4f37-b64a-6be6fed6c588	c0c8ba38-005e-4bdf-bb7d-4f67d87d7faa	4528	2020-03-18	\N	\N
 c0a2ba5a-3a67-4883-9b59-63d15aa95292	b76bc617-2b56-4c9d-80a3-3761e40ce33a	b273a772-1423-4829-9cc5-58df92c1bfed	2288	2019-09-23	\N	\N
 e9c4501a-f10c-47a0-9e1e-aaee1f35a250	e0c5f812-f561-4d47-adc0-a578e36a2069	f6868042-723d-4ef9-9b0e-bbe906bedb3d	2781	2019-11-05	\N	\N
@@ -1420,7 +1466,7 @@ bea946ee-4d1b-4c9b-b1d4-711fc49095e0	Dwain 8	\N	dwayn8	dwayn8@gmail.co.in	guest	
 -- Name: audit_logs_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.audit_logs_id_seq', 45, true);
+SELECT pg_catalog.setval('public.audit_logs_id_seq', 49, true);
 
 
 --
@@ -1560,6 +1606,300 @@ ALTER TABLE ONLY public.purchases
 
 ALTER TABLE ONLY public.purchases
     ADD CONSTRAINT purchases_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.suppliers(id);
+
+
+--
+-- Name: SCHEMA public; Type: ACL; Schema: -; Owner: postgres
+--
+
+GRANT USAGE ON SCHEMA public TO noqueryuser;
+
+
+--
+-- Name: FUNCTION create_order(title character varying, first_name character varying, last_name character varying, product_id uuid, number_shipped integer, order_date date); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.create_order(title character varying, first_name character varying, last_name character varying, product_id uuid, number_shipped integer, order_date date) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION create_product(product_name character varying, part_number character varying, product_label character varying, starting_inventory integer, inventory_received integer, inventory_shipped integer, minimum_required integer); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.create_product(product_name character varying, part_number character varying, product_label character varying, starting_inventory integer, inventory_received integer, inventory_shipped integer, minimum_required integer) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION create_purchase(supplier_id uuid, product_id uuid, number_received integer, purchase_date date); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.create_purchase(supplier_id uuid, product_id uuid, number_received integer, purchase_date date) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION create_supplier(supplier character varying); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.create_supplier(supplier character varying) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION create_user(user_name character varying, email character varying, first_name character varying, last_name character varying, hash character varying, salt character varying, user_type character varying, address character varying, phone character varying); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.create_user(user_name character varying, email character varying, first_name character varying, last_name character varying, hash character varying, salt character varying, user_type character varying, address character varying, phone character varying) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION get_count(table_name character varying); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.get_count(table_name character varying) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION get_order(oid uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.get_order(oid uuid) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION get_orders(query_limit integer, page integer, col_name character varying, col_dir character varying); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.get_orders(query_limit integer, page integer, col_name character varying, col_dir character varying) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION get_product(pid uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.get_product(pid uuid) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION get_products(query_limit integer, page integer, col_name character varying, col_dir character varying); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.get_products(query_limit integer, page integer, col_name character varying, col_dir character varying) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION get_purchase(pid uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.get_purchase(pid uuid) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION get_purchases(query_limit integer, page integer, col_name character varying, col_dir character varying); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.get_purchases(query_limit integer, page integer, col_name character varying, col_dir character varying) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION get_supplier(sid uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.get_supplier(sid uuid) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION get_suppliers(query_limit integer, page integer, col_name character varying, col_dir character varying); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.get_suppliers(query_limit integer, page integer, col_name character varying, col_dir character varying) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION get_user(username character varying, useremail character varying); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.get_user(username character varying, useremail character varying) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION remove_order(oid uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.remove_order(oid uuid) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION remove_product(pid uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.remove_product(pid uuid) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION remove_purchase(pid uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.remove_purchase(pid uuid) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION remove_supplier(sid uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.remove_supplier(sid uuid) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION table_query_operation(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.table_query_operation() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION update_column(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.update_column() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION update_order(id uuid, title character varying, first_name character varying, last_name character varying, product_id uuid, number_shipped integer, order_date date); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.update_order(id uuid, title character varying, first_name character varying, last_name character varying, product_id uuid, number_shipped integer, order_date date) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION update_product(id uuid, product_name character varying, part_number character varying, product_label character varying, starting_inventory integer, inventory_received integer, inventory_shipped integer, minimum_required integer); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.update_product(id uuid, product_name character varying, part_number character varying, product_label character varying, starting_inventory integer, inventory_received integer, inventory_shipped integer, minimum_required integer) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION update_purchase(id uuid, supplier_id uuid, product_id uuid, number_received integer, purchase_date date); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.update_purchase(id uuid, supplier_id uuid, product_id uuid, number_received integer, purchase_date date) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION update_supplier(id uuid, supplier character varying); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.update_supplier(id uuid, supplier character varying) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION uuid_generate_v1(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.uuid_generate_v1() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION uuid_generate_v1mc(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.uuid_generate_v1mc() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION uuid_generate_v3(namespace uuid, name text); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.uuid_generate_v3(namespace uuid, name text) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION uuid_generate_v4(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.uuid_generate_v4() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION uuid_generate_v5(namespace uuid, name text); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.uuid_generate_v5(namespace uuid, name text) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION uuid_nil(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.uuid_nil() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION uuid_ns_dns(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.uuid_ns_dns() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION uuid_ns_oid(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.uuid_ns_oid() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION uuid_ns_url(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.uuid_ns_url() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION uuid_ns_x500(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.uuid_ns_x500() FROM PUBLIC;
+
+
+--
+-- Name: TABLE audit_logs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT ON TABLE public.audit_logs TO noqueryuser;
+
+
+--
+-- Name: TABLE orders; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT ON TABLE public.orders TO noqueryuser;
+
+
+--
+-- Name: TABLE products; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT ON TABLE public.products TO noqueryuser;
+
+
+--
+-- Name: TABLE purchases; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT ON TABLE public.purchases TO noqueryuser;
+
+
+--
+-- Name: TABLE suppliers; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT ON TABLE public.suppliers TO noqueryuser;
+
+
+--
+-- Name: TABLE users; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT ON TABLE public.users TO noqueryuser;
 
 
 --
