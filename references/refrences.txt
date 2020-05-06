@@ -2,4 +2,20 @@
 pg_dump -U postgres -p 5432 -d inventorymanager -W -f c:\inv.pgsql
 
 # restore a db file
-psql 
+
+# connect to a database with 
+psql -d <database-name> -U <user-name>;
+
+CREATE USER <my-user> WITH PASSWORD '123456';
+
+# grant a set of permissions
+GRANT ALL ON DATABASE inventorymanager TO noqueryuser;
+
+# revoke a set of permissions
+REVOKE 
+
+# view permissions for a table
+\dp <table-name>
+
+#get a list of available schema
+SELECT * FROM information_schema.schemata;
