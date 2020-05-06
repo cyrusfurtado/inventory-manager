@@ -21,7 +21,6 @@
   },
   "husky": {
     "hooks": {
-      "pre-push": "npm run dump-db && git add ./db/dump/exports/invmanager.pgsql && git commit -m \"database dump added\" && sleep 1"
     }
   },
   "devDependencies": {
